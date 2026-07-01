@@ -1,0 +1,38 @@
+# Data & model artifacts (never commit — see data/README.md to regenerate/fetch)
+data/**
+!data/README.md
+!data/synth/
+data/synth/**
+!data/synth/generate.py
+!data/prepare.py
+
+# Model weights / adapters / checkpoints
+*.pt
+*.pth
+*.bin
+*.safetensors
+outputs/
+checkpoints/
+adapters/
+*.gguf
+
+# Experiment tracking
+wandb/
+
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
