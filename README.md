@@ -75,7 +75,29 @@ pip install -r requirements.txt      # CPU work: data, metrics, baseline, servin
 ```
 
 ## Run instructions
-_TODO: fill per milestone (data prep, train, eval, serve, demo)._
+```bash
+# 1. Data (CPU)
+python data/synth/generate.py --n 1500 --seed 0
+python data/prepare.py --with-cord --seed 0
+
+# 2. Sanity-check the training pipeline without a GPU (CPU)
+python training/train_qlora.py --config training/config.yaml --dry-run
+
+# 3. Prove the training loop on a tiny subset, then full run (GPU host)
+python training/train_qlora.py --config training/config.yaml --max-samples 20   # smoke
+python training/train_qlora.py --config training/config.yaml                     # full
+
+# 4. Evaluate + baseline (baseline dry-run first — see cost guard)
+python eval/compare_baseline.py --ref data/splits/test.jsonl --provider openai   # estimate only
+python eval/metrics.py --pred <preds>.jsonl --ref data/splits/test.jsonl --manifest
+```
+_Serving + demo commands: TODO (Milestone 5)._
+
+### GPU requirements (training / inference)
+QLoRA 4-bit of Qwen2.5-VL-3B + vision fits roughly **16–24 GB VRAM** at batch 1
+with the image pixel caps in `training/config.yaml`. Training uses
+`bitsandbytes` (CUDA only) — run it on a rented/cloud GPU (RunPod/Vast). The
+`--dry-run` path is CPU-only and validates data/prompt formatting anywhere.
 
 ## Compute note
 Training (QLoRA 4-bit via bitsandbytes) requires an NVIDIA CUDA GPU and is done on

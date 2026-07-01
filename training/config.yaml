@@ -1,0 +1,53 @@
+# QLoRA fine-tune config for the invoice extractor.
+# Read by training/train_qlora.py. All knobs live here so runs are reproducible.
+
+model:
+  base_id: "Qwen/Qwen2.5-VL-3B-Instruct"
+  trust_remote_code: true
+  # Freeze the vision tower; only LoRA-tune the language model projections.
+  freeze_vision: true
+
+# 4-bit QLoRA quantization (bitsandbytes). CUDA GPU only.
+quant:
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+  bnb_4bit_compute_dtype: "bfloat16"
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj",
+                   "gate_proj", "up_proj", "down_proj"]
+
+data:
+  train_manifest: "data/splits/train.jsonl"
+  val_manifest: "data/splits/val.jsonl"
+  # Cap image resolution to control vision-token count (memory). Qwen2.5-VL
+  # accepts min/max pixel budgets; lower = cheaper, less detail.
+  image_min_pixels: 200704      # 448*448
+  image_max_pixels: 1003520     # ~1000*1000
+  max_seq_len: 2048
+
+train:
+  output_dir: "outputs/qlora-qwen25vl-3b"
+  num_train_epochs: 2
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16     # effective batch 16
+  learning_rate: 1.0e-4
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  logging_steps: 10
+  eval_steps: 100
+  save_steps: 200
+  save_total_limit: 2
+  bf16: true
+  gradient_checkpointing: true
+  seed: 0
+
+wandb:
+  project: "invoice-extractor"
+  run_name: "qlora-qwen25vl-3b"
+  mode: "online"        # set "offline" or "disabled" to avoid network/login
