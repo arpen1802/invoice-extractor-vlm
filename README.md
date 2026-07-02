@@ -17,10 +17,19 @@ real held-out test set, plus a clean deployable stack.
 
 ## Architecture
 ```
-invoice image ──► Qwen2.5-VL-3B (QLoRA fine-tuned) ──► guided JSON decoding ──► Pydantic validation ──► Invoice JSON
-                                                        (schema in serving/schema.py)
+                 ┌─────────────────────────── training (offline, GPU) ──────────────────────────┐
+  synthetic  ──► │ data/synth/generate.py ┐                                                       │
+  CORD (real)──► │ data/prepare.py ────────┴─► train/val/test splits ─► train_qlora.py (QLoRA 4-bit)│
+                 └───────────────────────────────────────────────┬──────────────────────────────┘
+                                                                  ▼  LoRA adapter
+  invoice image ──► FastAPI (serving/app.py) ──► Qwen2.5-VL-3B + adapter ──► guided JSON decoding
+                                                 (vLLM, 4-bit/AWQ)           (schema-constrained)
+                          │                                                          │
+                          └──────────► Pydantic validation (serving/schema.py) ◄─────┘
+                                                     ▼
+                                            schema-valid Invoice JSON
+  eval/metrics.py + eval/compare_baseline.py score ours vs a general API on the frozen real test set.
 ```
-_TODO: architecture diagram (Milestone 5)._
 
 ## Results (held-out real invoices)
 All cells `TODO: run` until Milestone 4. Populated only by `eval/metrics.py` and
@@ -91,7 +100,26 @@ python training/train_qlora.py --config training/config.yaml                    
 python eval/compare_baseline.py --ref data/splits/test.jsonl --provider openai   # estimate only
 python eval/metrics.py --pred <preds>.jsonl --ref data/splits/test.jsonl --manifest
 ```
-_Serving + demo commands: TODO (Milestone 5)._
+# 5. Serve (GPU) + demo
+INVOICE_BACKEND=vllm INVOICE_MODEL=outputs/qlora-merged \
+    uvicorn serving.app:app --host 0.0.0.0 --port 8000
+python serving/benchmark.py --images data/splits/test.jsonl --n 50 --label full --out serving/bench_full.json
+INVOICE_QUANTIZATION=awq python serving/benchmark.py --images data/splits/test.jsonl --n 50 --label awq4 --out serving/bench_awq.json
+
+# lightweight demo against the API, or fully local CPU fallback
+INVOICE_API_URL=http://localhost:8000 python demo/app.py
+INVOICE_DEMO_LOCAL=1 INVOICE_BACKEND=hf python demo/app.py   # CPU, slow, no vLLM
+
+# API layer smoke test with no model / no GPU
+INVOICE_BACKEND=mock uvicorn serving.app:app --port 8000
+```
+
+### Docker
+```bash
+docker build -f serving/Dockerfile -t invoice-extractor:latest .
+docker run --gpus all -p 8000:8000 -e INVOICE_MODEL=/models/qlora-merged \
+    -v $PWD/outputs:/models invoice-extractor:latest
+```
 
 ### GPU requirements (training / inference)
 QLoRA 4-bit of Qwen2.5-VL-3B + vision fits roughly **16–24 GB VRAM** at batch 1
@@ -106,5 +134,32 @@ all serving/demo code run on CPU (including a MacBook). See `IMPLEMENTATION_PLAN
 for the three GPU decision points.
 
 ## Design decisions & tradeoffs
-_TODO: expand (why small fine-tuned VLM, quantization tradeoffs, synthetic-data
-caveats) — Milestone 5._
+**Why a small fine-tuned VLM instead of a general API.** For one fixed schema, a
+3B model specialized on that schema can match or beat a large general model on
+field accuracy while being cheap and self-hostable (no per-call fee, no data
+leaving the host). The tradeoff is generality — this model only does invoices in
+this schema, and a general API remains better for open-ended documents.
+
+**Why the vision route (image in) over OCR + text model.** Reading the image
+directly preserves layout — columns, alignment, and table structure carry
+meaning for line items and totals that a flat OCR dump loses. The cost is more
+GPU memory and vision-token budget, which we cap via image pixel limits in
+`training/config.yaml`.
+
+**Quantization tradeoffs.** 4-bit QLoRA makes fine-tuning fit on a modest GPU;
+serving in 4-bit/AWQ cuts memory and can improve throughput, usually at a small
+accuracy cost. The serving benchmark reports the full-vs-quantized numbers so the
+tradeoff is measured, not assumed.
+
+**Guided decoding.** Output is constrained to the JSON schema at decode time, so
+malformed JSON is largely designed out rather than caught after the fact; Pydantic
+validation is the final guard.
+
+**Synthetic-data caveat.** Synthetic invoices give volume and perfect labels but
+don't capture the full messiness of real documents (scans, noise, odd layouts).
+That's exactly why headline metrics are reported only on a **real, frozen**
+held-out set, never on synthetic data. Note also that the CORD source is
+*receipts*, not invoices — see `data/README.md` for how that shapes the test set.
+
+## Demo
+_TODO: demo GIF (Milestone 5, after the model is trained)._

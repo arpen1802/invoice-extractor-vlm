@@ -27,6 +27,8 @@ wandb==0.18.3
 fastapi==0.115.0
 uvicorn==0.31.0
 gradio==4.44.0
+requests==2.32.3
+python-multipart==0.0.12    # FastAPI file uploads
 
 # ---------------------------------------------------------------------------
 # GPU-only (NVIDIA CUDA). Do NOT expect these to install/run on a Mac.
